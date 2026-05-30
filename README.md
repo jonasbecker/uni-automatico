@@ -19,6 +19,7 @@ Automatically syncs Moodle course materials, tracks deadlines, and uses the Clau
 git clone https://github.com/jonasbecker/uni-automatico
 cd uni-automatico
 python3 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip   # required on macOS with older pip (< 22)
 pip install -e .
 
 # 2. Create the Configs directory (moodle-dl stores its token here)
