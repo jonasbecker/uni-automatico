@@ -18,11 +18,8 @@ from moodle_assistant.appconfig import (
     FILES_DIR,
     LAUNCH_AGENT_PATH,
     MOODLE_URL_DEFAULT,
-    STATE_PATH,
     load_config,
-    load_state,
     save_config,
-    save_state,
 )
 
 AUTOSYNC_INTERVAL = 30 * 60  # seconds
@@ -47,12 +44,14 @@ class MoodleApp(rumps.App):
 
         self.menu = [
             rumps.MenuItem("▶  Sync jetzt", callback=self.sync_now),
+            rumps.MenuItem("📅  Heute", callback=self.show_today),
             rumps.MenuItem("📁  Dateien öffnen", callback=self.open_files),
             None,
             self._autosync_item,
             None,
             rumps.MenuItem("⚙  Einstellungen", callback=self.open_settings),
             rumps.MenuItem("🔑  Passwort ändern", callback=self.change_password),
+            rumps.MenuItem("📝  Klausur hinzufügen", callback=self.add_exam),
             None,
             self._status_item,
             None,
@@ -60,6 +59,7 @@ class MoodleApp(rumps.App):
             None,
             rumps.MenuItem("Beenden", callback=rumps.quit_application),
         ]
+        self._refresh_badge()
 
         # First-run wizard if not configured
         if not self._config.get("username") or not self._config.get("moodle_url"):
@@ -287,29 +287,11 @@ class MoodleApp(rumps.App):
             return
 
         self._set_status("🔄 Prüfe Kurse...")
-        state = load_state()
-        new_items: list = []
-
         try:
-            courses = client.get_courses()
-            for course in courses:
-                resources = client.get_course_resources(course)
-                for r in resources:
-                    if r.type != "file":
-                        continue
-                    key = f"resource_{r.id}"
-                    if key in state["seen_resources"]:
-                        continue
-                    state["seen_resources"][key] = {
-                        "title": r.title,
-                        "course": r.course_name,
-                        "seen_at": datetime.now().isoformat(),
-                    }
-                    path = client.download_resource(r, FILES_DIR)
-                    if path:
-                        state["seen_resources"][key]["path"] = str(path)
-                        new_items.append(r)
-            save_state(state)
+            from moodle_assistant import db, ingest
+            conn = db.connect()
+            new_items = ingest.sync_to_db(client, conn, on_progress=self._set_status)
+            n_unread = db.count_new(conn)
         except Exception as e:
             self._set_status(f"❌ {e}")
             self.title = "🎓"
@@ -318,19 +300,93 @@ class MoodleApp(rumps.App):
 
         now = datetime.now().strftime("%H:%M")
         if new_items:
-            n_courses = len({r.course_name for r in new_items})
             self._set_status(f"✅ {len(new_items)} neu — {now}")
-            self.title = f"🎓 {len(new_items)}"
             rumps.notification(
                 title="Moodle: Neue Materialien",
                 subtitle=None,
-                message=f"{len(new_items)} Datei(en) in {n_courses} Kurs(en)",
+                message=_summary(new_items),
             )
         else:
             self._set_status(f"✅ Nichts Neues — {now}")
-            self.title = "🎓"
+        self.title = f"🎓 {n_unread}" if n_unread else "🎓"
 
         self._syncing = False
+
+    def _refresh_badge(self) -> None:
+        try:
+            from moodle_assistant import db
+            n = db.count_new(db.connect())
+            self.title = f"🎓 {n}" if n else "🎓"
+        except Exception:
+            self.title = "🎓"
+
+    # ------------------------------------------------------------------ #
+    # "Heute" view                                                         #
+    # ------------------------------------------------------------------ #
+
+    @rumps.clicked("📅  Heute")
+    def show_today(self, _) -> None:
+        from moodle_assistant import db
+        from moodle_assistant.views import format_today
+
+        conn = db.connect()
+        deadlines = db.get_upcoming_deadlines(conn, within_days=14)
+        new_items = db.get_new_items(conn)
+        msg = format_today(deadlines, new_items, plain=True)
+        rumps.alert(title="📅 Heute", message=msg, ok="OK")
+        db.mark_seen_all_new(conn)
+        self.title = "🎓"
+
+    # ------------------------------------------------------------------ #
+    # Add exam                                                             #
+    # ------------------------------------------------------------------ #
+
+    @rumps.clicked("📝  Klausur hinzufügen")
+    def add_exam(self, _) -> None:
+        course = rumps.Window(
+            title="Klausur – Kurs",
+            message="Kursname:",
+            ok="Weiter", cancel="Abbrechen",
+            dimensions=(300, 22),
+        ).run()
+        if not course.clicked or not course.text.strip():
+            return
+        name = rumps.Window(
+            title="Klausur – Bezeichnung",
+            message="Name der Klausur:",
+            default_text="Klausur",
+            ok="Weiter", cancel="Abbrechen",
+            dimensions=(300, 22),
+        ).run()
+        if not name.clicked or not name.text.strip():
+            return
+        date = rumps.Window(
+            title="Klausur – Datum",
+            message="Datum (JJJJ-MM-TT):",
+            ok="Speichern", cancel="Abbrechen",
+            dimensions=(300, 22),
+        ).run()
+        if not date.clicked:
+            return
+        date_str = date.text.strip()
+        if not _valid_date(date_str):
+            rumps.alert("Ungültiges Datum", "Bitte im Format JJJJ-MM-TT eingeben.")
+            return
+
+        from moodle_assistant import db
+        conn = db.connect()
+        db.add_exam(conn, course.text.strip(), name.text.strip(), date_str)
+
+        # Persist to config.yaml so it survives and feeds Phase 3.
+        exams = self._config.get("exams") or []
+        exams.append({
+            "course": course.text.strip(),
+            "name": name.text.strip(),
+            "date": date_str,
+        })
+        self._config["exams"] = exams
+        save_config(self._config)
+        self._set_status(f"✅ Klausur '{name.text.strip()}' gespeichert")
 
     # ------------------------------------------------------------------ #
     # Open files folder                                                    #
@@ -340,6 +396,25 @@ class MoodleApp(rumps.App):
     def open_files(self, _) -> None:
         FILES_DIR.mkdir(parents=True, exist_ok=True)
         subprocess.run(["open", str(FILES_DIR)])
+
+
+def _summary(new_items: list[dict]) -> str:
+    files = sum(1 for i in new_items if i["type"] == "file")
+    assigns = sum(1 for i in new_items if i["type"] == "assignment")
+    parts = []
+    if files:
+        parts.append(f"{files} Datei(en)")
+    if assigns:
+        parts.append(f"{assigns} Abgabe(n)")
+    return ", ".join(parts) or f"{len(new_items)} neue Items"
+
+
+def _valid_date(s: str) -> bool:
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
 
 
 def main() -> None:

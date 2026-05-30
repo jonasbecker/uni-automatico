@@ -5,17 +5,8 @@ import argparse
 import getpass
 import os
 import sys
-from datetime import datetime
-from pathlib import Path
 
-from moodle_assistant.appconfig import (
-    CONFIG_PATH,
-    FILES_DIR,
-    STATE_PATH,
-    load_config,
-    load_state,
-    save_state,
-)
+from moodle_assistant.appconfig import CONFIG_PATH, load_config
 
 
 def _require_config() -> dict:
@@ -56,7 +47,7 @@ def cmd_list_courses(args: argparse.Namespace) -> None:
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
-    from moodle_assistant import notify
+    from moodle_assistant import db, ingest, notify
 
     config = _require_config()
     client = _make_client(config)
@@ -68,39 +59,39 @@ def cmd_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
     print("Login successful.")
 
-    courses = client.get_courses()
-    print(f"Checking {len(courses)} course(s) for new files...\n")
+    conn = db.connect()
+    new_items = ingest.sync_to_db(client, conn, on_progress=lambda s: print(s))
 
-    state = load_state()
-    new_items = []
-
-    for course in courses:
-        resources = client.get_course_resources(course)
-        files = [r for r in resources if r.type == "file"]
-        for resource in files:
-            key = f"resource_{resource.id}"
-            if key in state["seen_resources"]:
-                continue
-            state["seen_resources"][key] = {
-                "title": resource.title,
-                "course": resource.course_name,
-                "seen_at": datetime.now().isoformat(),
-            }
-            path = client.download_resource(resource, FILES_DIR)
-            if path:
-                state["seen_resources"][key]["path"] = str(path)
-                new_items.append((resource, path))
-                print(f"  ↓  [{course.name}]  {resource.title}")
-
-    save_state(state)
+    files = [i for i in new_items if i["type"] == "file"]
+    assigns = [i for i in new_items if i["type"] == "assignment"]
+    for i in files:
+        print(f"  ↓  [{i['course_name']}]  {i['title']}")
 
     if new_items:
-        courses_affected = {r.course_name for r, _ in new_items}
-        summary = f"{len(new_items)} neue Datei(en) in {len(courses_affected)} Kurs(en)"
+        parts = []
+        if files:
+            parts.append(f"{len(files)} neue Datei(en)")
+        if assigns:
+            parts.append(f"{len(assigns)} neue Abgabe(n)")
+        summary = ", ".join(parts) or f"{len(new_items)} neue Items"
         print(f"\n{summary}")
         notify.send("Moodle: Neue Materialien", summary)
     else:
-        print("Keine neuen Dateien.")
+        print("Keine neuen Dateien oder Fristen.")
+
+
+def cmd_today(args: argparse.Namespace) -> None:
+    from moodle_assistant import db
+    from moodle_assistant.views import format_today
+
+    conn = db.connect()
+    deadlines = db.get_upcoming_deadlines(conn, within_days=14)
+    new_items = db.get_new_items(conn)
+    print(format_today(deadlines, new_items, plain=True))
+
+    if getattr(args, "seen", False):
+        n = db.mark_seen_all_new(conn)
+        print(f"\n({n} Item(s) als gesehen markiert.)")
 
 
 def main() -> None:
@@ -111,7 +102,11 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("list-courses", help="Login and list enrolled courses")
     sub.add_parser("sync", help="Download new course files and notify")
-    sub.add_parser("today", help="Show new items and deadlines (Phase 2)")
+    today_p = sub.add_parser("today", help="Show new items and deadlines")
+    today_p.add_argument(
+        "--seen", action="store_true",
+        help="Mark all new items as seen after displaying",
+    )
     sub.add_parser("plan", help="Generate AI study plan (Phase 3)")
 
     args = parser.parse_args()
@@ -120,6 +115,8 @@ def main() -> None:
         cmd_list_courses(args)
     elif args.command == "sync":
         cmd_sync(args)
+    elif args.command == "today":
+        cmd_today(args)
     elif args.command is None:
         parser.print_help()
     else:

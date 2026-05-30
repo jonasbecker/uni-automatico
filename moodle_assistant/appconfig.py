@@ -10,6 +10,7 @@ APP_NAME = "MoodleAssistant"
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / APP_NAME
 CONFIG_PATH = APP_SUPPORT / "config.yaml"
 STATE_PATH = APP_SUPPORT / "state.json"
+DB_PATH = APP_SUPPORT / "assistant.db"
 FILES_DIR = APP_SUPPORT / "files"
 LAUNCH_AGENT_PATH = (
     Path.home() / "Library" / "LaunchAgents" / "com.moodleassistant.app.plist"
