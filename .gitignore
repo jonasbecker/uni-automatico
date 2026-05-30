@@ -2,8 +2,9 @@
 config/config.yaml
 Configs/
 
-# downloaded course data
-data/
+# downloaded course data (but keep the placeholder)
+data/files/
+data/state.json
 *.log
 MoodleDL.log
 

@@ -8,6 +8,9 @@ moodle_url: "https://lehre.moodle.uni-due.de/"
 # Your Moodle username (password is entered at runtime or via MOODLE_PASS env var).
 username: "your_username"
 
+# Where to store downloaded files and state (relative to project root).
+data_dir: "data"
+
 # Available study hours per day of the week (0 = not available).
 study_hours_per_day:
   monday: 3
