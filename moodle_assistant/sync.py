@@ -62,28 +62,35 @@ class MoodleClient:
             raise ValueError("Login failed — check username and password.")
 
     def get_courses(self) -> List[Course]:
-        """Return the list of enrolled courses."""
-        resp = self.session.get(f"{self.base_url}/my/courses.php", timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "lxml")
-
+        """Return the list of enrolled courses by scraping multiple Moodle pages."""
         courses: List[Course] = []
         seen: set = set()
 
-        for a in soup.find_all("a", href=re.compile(r"/course/view\.php\?id=\d+")):
-            href = a["href"]
-            m = re.search(r"id=(\d+)", href)
-            if not m:
-                continue
-            course_id = int(m.group(1))
-            if course_id in seen:
-                continue
-            seen.add(course_id)
+        # Moodle shows enrolled courses across different pages depending on version/theme
+        pages = [
+            "/my/",
+            "/my/courses.php",
+            "/course/index.php",
+        ]
 
-            name = a.get_text(strip=True) or f"Course {course_id}"
-            if not name:
+        for page in pages:
+            resp = self.session.get(f"{self.base_url}{page}", timeout=15)
+            if not resp.ok:
                 continue
-            full_url = href if href.startswith("http") else f"{self.base_url}{href}"
-            courses.append(Course(id=course_id, name=name, url=full_url))
+            soup = BeautifulSoup(resp.text, "lxml")
+            for a in soup.find_all("a", href=re.compile(r"/course/view\.php\?id=\d+")):
+                href = a["href"]
+                m = re.search(r"id=(\d+)", href)
+                if not m:
+                    continue
+                course_id = int(m.group(1))
+                if course_id in seen:
+                    continue
+                seen.add(course_id)
+                name = a.get_text(strip=True)
+                if not name:
+                    continue
+                full_url = href if href.startswith("http") else f"{self.base_url}{href}"
+                courses.append(Course(id=course_id, name=name, url=full_url))
 
         return courses
