@@ -13,10 +13,12 @@ dependencies = [
     "anthropic>=0.25.0",
     "pyyaml>=6.0",
     "keyring>=24.0",
+    "rumps>=0.4.0",
 ]
 
 [project.scripts]
 moodle-assistant = "moodle_assistant.cli:main"
+moodle-assistant-app = "moodle_assistant.menubar:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
