@@ -115,7 +115,6 @@ class MoodleApp(rumps.App):
         save_config(self._config)
         self._set_status("✅ Einstellungen gespeichert")
 
-    @rumps.clicked("⚙  Einstellungen")
     def open_settings(self, _) -> None:
         self._run_settings_wizard()
 
@@ -145,7 +144,6 @@ class MoodleApp(rumps.App):
         ).run()
         return resp.text if resp.clicked else None
 
-    @rumps.clicked("🔑  Passwort ändern")
     def change_password(self, _) -> None:
         pw = self._ask_password()
         if pw:
@@ -157,7 +155,6 @@ class MoodleApp(rumps.App):
     # Auto-Sync timer                                                      #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("🔁 Auto-Sync (30 min)")
     def toggle_autosync(self, sender) -> None:
         if self._autosync_timer:
             self._autosync_timer.cancel()
@@ -183,7 +180,6 @@ class MoodleApp(rumps.App):
     # Autostart (Launch Agent)                                             #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("🚀 Beim Anmelden starten")
     def toggle_autostart(self, sender) -> None:
         if LAUNCH_AGENT_PATH.exists():
             subprocess.run(
@@ -239,7 +235,6 @@ class MoodleApp(rumps.App):
     # Sync                                                                 #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("▶  Sync jetzt")
     def sync_now(self, _) -> None:
         if self._syncing:
             return
@@ -324,7 +319,6 @@ class MoodleApp(rumps.App):
     # "Heute" view                                                         #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("📅  Heute")
     def show_today(self, _) -> None:
         from moodle_assistant import db
         from moodle_assistant.views import format_today
@@ -341,7 +335,6 @@ class MoodleApp(rumps.App):
     # Add exam                                                             #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("📝  Klausur hinzufügen")
     def add_exam(self, _) -> None:
         course = rumps.Window(
             title="Klausur – Kurs",
@@ -392,9 +385,16 @@ class MoodleApp(rumps.App):
     # Open files folder                                                    #
     # ------------------------------------------------------------------ #
 
-    @rumps.clicked("📁  Dateien öffnen")
     def open_files(self, _) -> None:
         FILES_DIR.mkdir(parents=True, exist_ok=True)
+        has_files = any(FILES_DIR.iterdir())
+        if not has_files:
+            rumps.alert(
+                title="Noch keine Dateien",
+                message="Klicke zuerst auf '▶  Sync jetzt', um Dateien von Moodle zu laden.",
+                ok="OK",
+            )
+            return
         subprocess.run(["open", str(FILES_DIR)])
 
 
