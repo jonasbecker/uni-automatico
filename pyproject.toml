@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "moodle-assistant"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
     "moodle-dl>=2.3.13",
     "anthropic>=0.25.0",
