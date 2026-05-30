@@ -31,3 +31,4 @@ ENV/
 # macos
 .DS_Store
 *.swp
+auth_setup.py
