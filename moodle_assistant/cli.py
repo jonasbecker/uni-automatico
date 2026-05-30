@@ -3,35 +3,29 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
+from moodle_assistant.appconfig import (
+    CONFIG_PATH,
+    FILES_DIR,
+    STATE_PATH,
+    load_config,
+    load_state,
+    save_state,
+)
 
 
-def _load_config(config_path: Path) -> dict:
-    if not config_path.exists():
-        print(f"Config not found: {config_path}")
-        print("Copy config/config.yaml.template to config/config.yaml and fill it in.")
+def _require_config() -> dict:
+    config = load_config()
+    if not config.get("moodle_url") or not config.get("username"):
+        print("Keine Konfiguration gefunden.")
+        print(f"Starte 'moodle-assistant-app' und richte die Einstellungen ein,")
+        print(f"oder lege {CONFIG_PATH} manuell an.")
         sys.exit(1)
-    with open(config_path) as f:
-        return yaml.safe_load(f)
-
-
-def _load_state(state_path: Path) -> dict:
-    if state_path.exists():
-        with open(state_path) as f:
-            return json.load(f)
-    return {"seen_resources": {}}
-
-
-def _save_state(state: dict, state_path: Path) -> None:
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_path, "w") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+    return config
 
 
 def _make_client(config: dict):
@@ -43,7 +37,7 @@ def _make_client(config: dict):
 
 
 def cmd_list_courses(args: argparse.Namespace) -> None:
-    config = _load_config(Path(args.config))
+    config = _require_config()
     client = _make_client(config)
     print(f"Logging in to {config['moodle_url'].rstrip('/')} ...")
     try:
@@ -64,11 +58,7 @@ def cmd_list_courses(args: argparse.Namespace) -> None:
 def cmd_sync(args: argparse.Namespace) -> None:
     from moodle_assistant import notify
 
-    config = _load_config(Path(args.config))
-    data_dir = Path(config.get("data_dir", "data"))
-    state_path = data_dir / "state.json"
-    files_dir = data_dir / "files"
-
+    config = _require_config()
     client = _make_client(config)
     print(f"Logging in to {config['moodle_url'].rstrip('/')} ...")
     try:
@@ -81,7 +71,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
     courses = client.get_courses()
     print(f"Checking {len(courses)} course(s) for new files...\n")
 
-    state = _load_state(state_path)
+    state = load_state()
     new_items = []
 
     for course in courses:
@@ -91,19 +81,18 @@ def cmd_sync(args: argparse.Namespace) -> None:
             key = f"resource_{resource.id}"
             if key in state["seen_resources"]:
                 continue
-            # Mark as seen immediately (even if download fails, avoids re-checking)
             state["seen_resources"][key] = {
                 "title": resource.title,
                 "course": resource.course_name,
                 "seen_at": datetime.now().isoformat(),
             }
-            path = client.download_resource(resource, files_dir)
+            path = client.download_resource(resource, FILES_DIR)
             if path:
                 state["seen_resources"][key]["path"] = str(path)
                 new_items.append((resource, path))
                 print(f"  ↓  [{course.name}]  {resource.title}")
 
-    _save_state(state, state_path)
+    save_state(state)
 
     if new_items:
         courses_affected = {r.course_name for r, _ in new_items}
@@ -118,11 +107,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="moodle-assistant",
         description="Moodle Study Assistant",
-    )
-    parser.add_argument(
-        "--config",
-        default="config/config.yaml",
-        help="Path to config.yaml (default: config/config.yaml)",
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("list-courses", help="Login and list enrolled courses")
@@ -139,7 +123,7 @@ def main() -> None:
     elif args.command is None:
         parser.print_help()
     else:
-        print(f"[stub] '{args.command}' not implemented yet — see PLAN.md")
+        print(f"[stub] '{args.command}' not yet implemented")
 
 
 if __name__ == "__main__":
