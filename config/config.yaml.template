@@ -1,0 +1,35 @@
+# Moodle Assistant — configuration template
+# Copy this file to config/config.yaml and fill in your values.
+# config/config.yaml is .gitignored and must NEVER be committed.
+
+# Your Moodle instance URL.
+moodle_url: "https://lehre.moodle.uni-due.de/"
+
+# Available study hours per day of the week (0 = not available).
+study_hours_per_day:
+  monday: 3
+  tuesday: 2
+  wednesday: 4
+  thursday: 2
+  friday: 1
+  saturday: 5
+  sunday: 5
+
+# List each course with its Moodle ID, exam date, difficulty and priority.
+# Course IDs appear in the Moodle URL: ?id=<number>
+courses:
+  - id: 12345
+    name: "Beispielkurs"
+    exam_date: "2026-07-15"
+    difficulty: 3    # 1 (easy) – 5 (very hard)
+    priority: 4      # 1 (low) – 5 (must-pass)
+
+# Claude AI planner (Phase 3).
+# ANTHROPIC_API_KEY must be set as an environment variable — never in this file.
+planner:
+  model: "claude-sonnet-4-6"
+  max_days_lookahead: 30
+
+# macOS notifications (Phase 4 — requires: brew install terminal-notifier).
+notifications:
+  enabled: false

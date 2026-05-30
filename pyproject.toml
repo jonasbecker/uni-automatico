@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "moodle-assistant"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "moodle-dl>=2.3.13",
+    "anthropic>=0.25.0",
+    "pyyaml>=6.0",
+    "keyring>=24.0",
+]
+
+[project.scripts]
+moodle-assistant = "moodle_assistant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["moodle_assistant*"]
