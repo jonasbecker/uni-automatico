@@ -1,0 +1,35 @@
+# credentials and personal data
+config/config.yaml
+Configs/
+
+# downloaded course data (but keep the placeholder)
+data/files/
+data/state.json
+*.log
+MoodleDL.log
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# virtual environments
+.venv/
+venv/
+ENV/
+
+# environment / secrets
+.env
+.env.*
+*.secret
+
+# macos
+.DS_Store
+*.swp
+auth_setup.py

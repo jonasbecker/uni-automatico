@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moodle-assistant"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=4.9",
+    "anthropic>=0.25.0",
+    "pyyaml>=6.0",
+    "keyring>=24.0",
+    "rumps>=0.4.0",
+]
+
+[project.scripts]
+moodle-assistant = "moodle_assistant.cli:main"
+moodle-assistant-app = "moodle_assistant.menubar:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["moodle_assistant*"]
