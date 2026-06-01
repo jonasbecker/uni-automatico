@@ -71,15 +71,19 @@ class MoodleClient:
         if '/login/' in resp.url:
             raise Exception("Login fehlgeschlagen: Moodle hat die Anmeldung abgelehnt.")
 
-        # Extract JS config values
+        # Extract JS config values (M.cfg block)
         m = re.search(r'"sesskey"\s*:\s*"([a-zA-Z0-9]+)"', resp.text)
         self._sesskey = m.group(1) if m else None
 
-        m = re.search(r'"userid"\s*:\s*(\d+)', resp.text)
+        # Moodle uses "userId" (camelCase) in M.cfg
+        m = re.search(r'"userId"\s*:\s*(\d+)', resp.text) \
+            or re.search(r'"userid"\s*:\s*(\d+)', resp.text)
         self._userid = int(m.group(1)) if m else None
 
-        m = re.search(r'"fullname"\s*:\s*"([^"]+)"', resp.text)
-        self._fullname = m.group(1) if m else 'Nutzer'
+        # Try footer "Sie sind angemeldet als <a>Name</a>" first (most reliable)
+        m = re.search(r'angemeldet als\s*<a[^>]+>([^<]+)</a>', resp.text) \
+            or re.search(r'"fullname"\s*:\s*"([^"]+)"', resp.text)
+        self._fullname = m.group(1).strip() if m else 'Nutzer'
 
         self._auth_mode = 'session'
 
@@ -141,16 +145,57 @@ class MoodleClient:
     # ── Session-mode scraping ─────────────────────────────────────────────
 
     def _scrape_courses(self) -> list:
-        # /my/courses.php is the dedicated "Meine Kurse" page (Moodle 4.x)
-        resp = self._session.get(f"{self.url}/my/courses.php", timeout=30)
-        courses = self._extract_course_links(resp.text)
+        # Moodle 4.x loads courses dynamically via AJAX — use the same internal
+        # API that the browser calls (requires sesskey from login).
+        if self._sesskey:
+            try:
+                courses = self._ajax_get_courses()
+                if courses:
+                    return courses
+            except Exception:
+                pass
 
-        # Fallback: dashboard page
-        if not courses:
-            resp = self._session.get(f"{self.url}/my/", timeout=30)
+        # Fallback: HTML scraping (older Moodle, or if AJAX fails)
+        for path in ('/my/courses.php', '/my/'):
+            resp = self._session.get(f"{self.url}{path}", timeout=30)
             courses = self._extract_course_links(resp.text)
+            if courses:
+                return courses
+        return []
 
-        return courses
+    def _ajax_get_courses(self) -> list:
+        """Call Moodle's internal AJAX service to get all enrolled courses."""
+        resp = self._session.post(
+            f"{self.url}/lib/ajax/service.php",
+            params={
+                'sesskey': self._sesskey,
+                'info': 'core_course_get_enrolled_courses_by_timeline_classification',
+            },
+            json=[{
+                "index": 0,
+                "methodname": "core_course_get_enrolled_courses_by_timeline_classification",
+                "args": {
+                    "offset": 0,
+                    "limit": 0,
+                    "classification": "all",
+                    "sort": "fullname",
+                },
+            }],
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if not result or result[0].get('error'):
+            return []
+        courses_data = result[0].get('data', {}).get('courses', [])
+        return [
+            {
+                'id': c['id'],
+                'fullname': c['fullname'],
+                'shortname': c.get('shortname', str(c['id'])),
+            }
+            for c in courses_data
+        ]
 
     def _extract_course_links(self, html: str) -> list:
         """Extract enrolled-course links from a Moodle HTML page.
