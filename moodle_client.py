@@ -141,28 +141,58 @@ class MoodleClient:
     # ── Session-mode scraping ─────────────────────────────────────────────
 
     def _scrape_courses(self) -> list:
-        resp = self._session.get(f"{self.url}/my/", timeout=30)
-        courses, seen = [], set()
+        # /my/courses.php is the dedicated "Meine Kurse" page (Moodle 4.x)
+        resp = self._session.get(f"{self.url}/my/courses.php", timeout=30)
+        courses = self._extract_course_links(resp.text)
 
-        for href, cid_str, name in re.findall(
-            r'href="([^"]*?/course/view\.php\?id=(\d+)[^"]*)"[^>]*>([^<]+)<',
-            resp.text
+        # Fallback: dashboard page
+        if not courses:
+            resp = self._session.get(f"{self.url}/my/", timeout=30)
+            courses = self._extract_course_links(resp.text)
+
+        return courses
+
+    def _extract_course_links(self, html: str) -> list:
+        """Extract enrolled-course links from a Moodle HTML page.
+
+        Moodle 4.x course cards carry a data-courseid attribute; older
+        versions just have <a href="/course/view.php?id=X"> links.
+        We collect IDs from both patterns and then deduplicate by ID,
+        preferring the longer (more descriptive) name when there are
+        duplicates from the same page.
+        """
+        courses: dict[int, str] = {}  # id → best name so far
+
+        # Pattern 1: data-courseid="X" … >Name< (Moodle 4.x cards)
+        for cid_str, name in re.findall(
+            r'data-courseid=["\'](\d+)["\'][^>]*>[^<]*<[^>]+>([^<]{3,})<',
+            html
         ):
             cid = int(cid_str)
             name = re.sub(r'\s+', ' ', name).strip()
-            if cid not in seen and name:
-                seen.add(cid)
-                courses.append({'id': cid, 'fullname': name, 'shortname': str(cid)})
+            if name and (cid not in courses or len(name) > len(courses[cid])):
+                courses[cid] = name
 
-        if not courses:
-            # Broader fallback: any course link on the page
-            for m in re.finditer(r'/course/view\.php\?id=(\d+)', resp.text):
-                cid = int(m.group(1))
-                if cid not in seen:
-                    seen.add(cid)
-                    courses.append({'id': cid, 'fullname': f'Kurs {cid}', 'shortname': str(cid)})
+        # Pattern 2: <a href="…/course/view.php?id=X…">Name<
+        for cid_str, name in re.findall(
+            r'/course/view\.php\?id=(\d+)[^"\']*["\'][^>]*>\s*([^<]{3,}?)\s*<',
+            html
+        ):
+            cid = int(cid_str)
+            name = re.sub(r'\s+', ' ', name).strip()
+            if name and (cid not in courses or len(name) > len(courses[cid])):
+                courses[cid] = name
 
-        return courses
+        # Pattern 3: bare IDs without names (last resort)
+        for cid_str in re.findall(r'/course/view\.php\?id=(\d+)', html):
+            cid = int(cid_str)
+            if cid not in courses:
+                courses[cid] = f'Kurs {cid}'
+
+        return [
+            {'id': cid, 'fullname': name, 'shortname': str(cid)}
+            for cid, name in courses.items()
+        ]
 
     def _scrape_course_contents(self, courseid: int) -> list:
         resp = self._session.get(f"{self.url}/course/view.php",
