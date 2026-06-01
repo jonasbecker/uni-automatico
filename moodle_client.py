@@ -144,14 +144,11 @@ class MoodleClient:
         resp = self._session.get(f"{self.url}/my/", timeout=30)
         courses, seen = [], set()
 
-        for href, name in re.findall(
+        for href, cid_str, name in re.findall(
             r'href="([^"]*?/course/view\.php\?id=(\d+)[^"]*)"[^>]*>([^<]+)<',
             resp.text
         ):
-            cid_match = re.search(r'id=(\d+)', href)
-            if not cid_match:
-                continue
-            cid = int(cid_match.group(1))
+            cid = int(cid_str)
             name = re.sub(r'\s+', ' ', name).strip()
             if cid not in seen and name:
                 seen.add(cid)
