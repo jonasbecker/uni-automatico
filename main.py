@@ -56,8 +56,30 @@ def save_config(cfg: dict):
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 
 
-def sanitize(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
+VIDEO_EXTENSIONS = {
+    '.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v',
+    '.flv', '.wmv', '.ts', '.3gp', '.ogv', '.mpeg', '.mpg',
+}
+
+_VORL_RE = re.compile(
+    r'(vorlesung|lecture|folien?|slides?|kapitel|chapter|skript|script|'
+    r'handout|pr[äa]sentation|presentation|\bvl[-_ ]|\bvl\d)',
+    re.IGNORECASE,
+)
+_UEBUNG_RE = re.compile(
+    r'([üu]bung|uebung|aufgabe|blatt|exercise|tutorium|tutorial|'
+    r'l[öo]sung|solution|praktikum|hausaufgabe|abgabe|klausur|\bue[-_ ]|\bue\d)',
+    re.IGNORECASE,
+)
+
+
+def classify_file(fname: str) -> str:
+    if _VORL_RE.search(fname):
+        return "Vorlesungen"
+    if _UEBUNG_RE.search(fname):
+        return "Übungen"
+    return "Sonstige Dateien"
+
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -424,10 +446,17 @@ class App(ctk.CTk):
                             if item.get("type") != "file":
                                 continue
                             fname = item["filename"]
-                            dest = dl_root / sanitize(cname) / sanitize(fname)
+
+                            # Skip video files
+                            if Path(fname).suffix.lower() in VIDEO_EXTENSIONS:
+                                self._ui(self._log, f"    ⏭ {fname} (Video)")
+                                continue
+
+                            category = classify_file(fname)
+                            dest = dl_root / sanitize(cname) / category / sanitize(fname)
                             if dest.exists():
                                 continue
-                            self._ui(self._log, f"    ↓ {fname}")
+                            self._ui(self._log, f"    ↓ [{category}] {fname}")
                             try:
                                 if client.download_file(item["fileurl"], dest):
                                     new_files.append((cname, dest))
