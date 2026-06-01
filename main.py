@@ -56,6 +56,10 @@ def save_config(cfg: dict):
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 
 
+def sanitize(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
+
+
 VIDEO_EXTENSIONS = {
     '.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v',
     '.flv', '.wmv', '.ts', '.3gp', '.ogv', '.mpeg', '.mpg',
