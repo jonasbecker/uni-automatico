@@ -499,41 +499,42 @@ class App(ctk.CTk):
                 self._ui(self._log, "Erstelle Karteikarten mit Ollama …")
 
                 prompt = self.cfg.get("prompt", DEFAULT_PROMPT)
-                all_cards: dict[str, list[dict]] = {}
+                self._ui(self._set_status, "export", "Exportiere …", "orange")
+
+                # One flashcard .txt per lecture file, saved next to the source
                 processable = [f for f in new_files
                                 if f[1].suffix.lower() in ('.pdf', '.txt', '.md')]
+                total_cards = 0
+                exported = 0
 
                 for j, (cname, fpath) in enumerate(processable):
                     self._ui(self._log, f"  Verarbeite: {fpath.name}")
                     try:
                         text = gen.extract_text(fpath)
                         if not text.strip():
-                            continue
-                        cards = gen.generate_cards(text, prompt)
-                        if cards:
-                            all_cards.setdefault(cname, []).extend(cards)
-                        self._ui(self._log, f"  ✓ {len(cards)} Karten aus {fpath.name}")
+                            self._ui(self._log, f"  (kein Text in {fpath.name})")
+                        else:
+                            cards = gen.generate_cards(text, prompt)
+                            if cards:
+                                export_path = fpath.with_name(
+                                    f"{fpath.stem}_Karteikarten.txt")
+                                gen.export_anki_txt(cards, export_path)
+                                total_cards += len(cards)
+                                exported += 1
+                                self._ui(self._log,
+                                         f"  ✓ {len(cards)} Karten → {export_path.name}")
+                            else:
+                                self._ui(self._log, f"  (keine Karten aus {fpath.name})")
                     except Exception as e:
                         self._ui(self._log, f"  ✗ {fpath.name}: {e}")
 
-                    pct = 0.5 + 0.4 * ((j + 1) / max(len(processable), 1))
+                    pct = 0.5 + 0.45 * ((j + 1) / max(len(processable), 1))
                     self._ui(self._set_prog, pct, f"KI: {fpath.name}")
 
-                total_cards = sum(len(v) for v in all_cards.values())
                 self._ui(self._set_status, "cards", f"✓ {total_cards} Karten", "green")
-                self._ui(self._log, f"✓ {total_cards} Karteikarten erstellt")
-
-                # ── 5. Export ─────────────────────────────────────────
-                self._ui(self._set_prog, 0.92, "Exportiere …")
-                self._ui(self._set_status, "export", "Exportiere …", "orange")
-
-                for cname, cards in all_cards.items():
-                    export_path = dl_root / sanitize(cname) / "karteikarten_anki.txt"
-                    gen.export_anki_txt(cards, export_path)
-                    self._ui(self._log, f"  → {export_path}")
-
-                self._ui(self._set_status, "export",
-                         f"✓ {len(all_cards)} Dateien", "green")
+                self._ui(self._set_status, "export", f"✓ {exported} Dateien", "green")
+                self._ui(self._log,
+                         f"✓ {total_cards} Karteikarten in {exported} Datei(en) erstellt")
             else:
                 self._ui(self._log, "Keine neuen Dateien – überspringe Karteikarten-Erstellung.")
                 for key in ("cards", "export"):
