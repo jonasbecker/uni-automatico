@@ -439,33 +439,50 @@ class App(ctk.CTk):
             dl_root = Path(self.cfg.get("download_path", str(Path.home() / "Uni-Materialien")))
             new_files: list[tuple[str, Path]] = []
 
+            # Generator for AI categorization + flashcards
+            gen = FlashcardGenerator(
+                model=self.cfg.get("ollama_model", "llama3.2"),
+                ollama_url=self.cfg.get("ollama_url", "http://localhost:11434"),
+            )
+
             for i, course in enumerate(courses):
                 cname = course["fullname"]
                 self._ui(self._log, f"  Kurs: {cname}")
                 contents = client.get_course_contents(course["id"])
 
+                # Collect file candidates (skip videos)
+                candidates: list[tuple[str, str]] = []  # (filename, fileurl)
                 for section in contents:
                     for module in section.get("modules", []):
                         for item in module.get("contents", []):
                             if item.get("type") != "file":
                                 continue
                             fname = item["filename"]
-
-                            # Skip video files
                             if Path(fname).suffix.lower() in VIDEO_EXTENSIONS:
                                 self._ui(self._log, f"    ⏭ {fname} (Video)")
                                 continue
+                            candidates.append((fname, item["fileurl"]))
 
-                            category = classify_file(fname)
-                            dest = dl_root / sanitize(cname) / category / sanitize(fname)
-                            if dest.exists():
-                                continue
-                            self._ui(self._log, f"    ↓ [{category}] {fname}")
-                            try:
-                                if client.download_file(item["fileurl"], dest):
-                                    new_files.append((cname, dest))
-                            except Exception as e:
-                                self._ui(self._log, f"    ✗ {fname}: {e}")
+                # AI categorization (one call per course), fall back to keywords
+                ai_map: dict[str, str] = {}
+                if candidates:
+                    self._ui(self._log, "    ⋯ KI sortiert Dateien …")
+                    try:
+                        ai_map = gen.classify_files([c[0] for c in candidates])
+                    except Exception as e:
+                        self._ui(self._log, f"    (KI-Sortierung übersprungen: {e})")
+
+                for fname, furl in candidates:
+                    category = ai_map.get(fname) or classify_file(fname)
+                    dest = dl_root / sanitize(cname) / category / sanitize(fname)
+                    if dest.exists():
+                        continue
+                    self._ui(self._log, f"    ↓ [{category}] {fname}")
+                    try:
+                        if client.download_file(furl, dest):
+                            new_files.append((cname, dest))
+                    except Exception as e:
+                        self._ui(self._log, f"    ✗ {fname}: {e}")
 
                 pct = 0.05 + 0.45 * ((i + 1) / len(courses))
                 self._ui(self._set_prog, pct, f"Lade: {cname}")
@@ -481,10 +498,6 @@ class App(ctk.CTk):
                 self._ui(self._set_status, "cards", "Erstelle …", "orange")
                 self._ui(self._log, "Erstelle Karteikarten mit Ollama …")
 
-                gen = FlashcardGenerator(
-                    model=self.cfg.get("ollama_model", "llama3.2"),
-                    ollama_url=self.cfg.get("ollama_url", "http://localhost:11434"),
-                )
                 prompt = self.cfg.get("prompt", DEFAULT_PROMPT)
                 all_cards: dict[str, list[dict]] = {}
                 processable = [f for f in new_files

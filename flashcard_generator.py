@@ -1,3 +1,4 @@
+import re
 import requests
 from pathlib import Path
 
@@ -62,6 +63,67 @@ class FlashcardGenerator:
                 front, back = line.split('::', 1)
                 cards.append({'front': front.strip(), 'back': back.strip()})
         return cards
+
+    # ── File categorization ────────────────────────────────────────────────
+
+    CATEGORIES = ("Vorlesungen", "Übungen", "Sonstige Dateien")
+
+    def classify_files(self, filenames: list[str]) -> dict[str, str]:
+        """Sort filenames into the three folder categories using the LLM.
+
+        Returns a dict {filename: category}. Only filenames the model
+        classified confidently are included — the caller falls back to
+        keyword matching for any that are missing.
+        """
+        if not filenames:
+            return {}
+
+        listing = "\n".join(f"{i + 1}. {fn}" for i, fn in enumerate(filenames))
+        prompt = (
+            "Du sortierst Dateien einer Universitäts-Lehrveranstaltung in genau "
+            "drei Kategorien:\n"
+            "- Vorlesungen: Folien, Skripte, Vorlesungsmaterial, Handouts\n"
+            "- Übungen: Übungsblätter, Aufgaben, Lösungen, Tutorien, Klausuren, "
+            "Probeklausuren\n"
+            "- Sonstige Dateien: alles andere (Organisatorisches, Literatur, "
+            "Formulare …)\n\n"
+            "Ordne jede Datei genau einer Kategorie zu. Antworte mit einer Zeile "
+            "pro Datei im Format:\n"
+            "Nummer<TAB>Kategorie\n"
+            "Gib nur diese Zeilen aus, keine Erklärungen.\n\n"
+            f"Dateien:\n{listing}"
+        )
+
+        try:
+            resp = requests.post(f"{self.ollama_url}/api/generate", json={
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+            }, timeout=120)
+            if resp.status_code != 200:
+                return {}
+            text = resp.json().get('response', '')
+        except Exception:
+            return {}
+
+        return self._parse_classification(text, filenames)
+
+    def _parse_classification(self, text: str, filenames: list[str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for line in text.splitlines():
+            line = line.strip()
+            num_match = re.match(r'(\d+)', line)
+            if not num_match:
+                continue
+            idx = int(num_match.group(1)) - 1
+            if not (0 <= idx < len(filenames)):
+                continue
+            # Find which category name appears in the line
+            for cat in self.CATEGORIES:
+                if cat.lower() in line.lower():
+                    result[filenames[idx]] = cat
+                    break
+        return result
 
     # ── Export ────────────────────────────────────────────────────────────
 
